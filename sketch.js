@@ -1,3 +1,5 @@
+p5.disableFriendlyErrors = true;
+
 const DIRECTIONS = {
   STAND: 0,
   FORWARD: 1,
@@ -11,11 +13,13 @@ const COLORS = {
 const ENV = {
   canvasWidth: 400,
   canvasHeight: 400,
-  population: 50,
-  contaminationRate: 0.2,
-  contagiousness: 0.01,
-  contaminationRadius: 10,
+  fullscreen: true,
+  population: 1000,
+  contaminationRate: 0.1,
+  contagiousness: 0.001,
+  contaminationRadius: 4,
   contaminationColor: COLORS.RED,
+  dayDuration: 4, // in seconds
 };
 
 const population = [];
@@ -27,8 +31,8 @@ class Cell {
       y: 0,
       xDirection: 0,
       yDirection: 0,
-      speed: 5,
-      size: 10,
+      speed: 2,
+      size: 2,
     }
   ) {
     this.x = settings.x;
@@ -64,8 +68,10 @@ class Cell {
   setRandomPosition() {
     this.x = random(this.size, width - this.size);
     this.y = random(this.size, height - this.size);
-    this.xDirection = random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
-    this.yDirection = random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
+    this.xDirection =
+      Math.random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
+    this.yDirection =
+      Math.random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
   }
 
   getDistance(other) {
@@ -76,10 +82,22 @@ class Cell {
   }
 }
 
-let paused = false;
+let startButton;
+let paused = true;
+let days = 0;
 
 function setup() {
-  createCanvas(ENV.canvasWidth, ENV.canvasHeight);
+  if (ENV.fullscreen) {
+    createCanvas(windowWidth, windowHeight);
+  } else {
+    createCanvas(ENV.canvasWidth, ENV.canvasHeight);
+  }
+
+  startButton = createButton("Start/Pause");
+  startButton.position(0, 0);
+  startButton.mousePressed(() => {
+    paused = !paused;
+  });
 
   // Create population
   for (let n = 0; n < ENV.population; n++) {
@@ -87,7 +105,7 @@ function setup() {
 
     c.setRandomPosition();
 
-    c.contaminated = random() <= ENV.contaminationRate;
+    c.contaminated = Math.random() <= ENV.contaminationRate;
 
     population.push(c);
   }
@@ -96,13 +114,18 @@ function setup() {
 function draw() {
   background(0);
 
+  let contaminatedCount = 0;
+
   population.forEach((c) => {
     if (c.contaminated) {
+      contaminatedCount++;
+
       noStroke();
       fill(ENV.contaminationColor);
       ellipse(c.x, c.y, c.size, c.size);
 
       stroke(ENV.contaminationColor);
+      strokeWeight(1);
       noFill();
       ellipse(
         c.x,
@@ -115,48 +138,51 @@ function draw() {
       fill(255);
       ellipse(c.x, c.y, c.size, c.size);
     }
+
+    if (!paused) c.move();
   });
+
+  const contaminatedPercent = (
+    (contaminatedCount / ENV.population) *
+    100
+  ).toFixed(2);
+
+  const textX = startButton ? startButton.width + 10 : 10;
+  const textY = 10 + 6;
+
+  stroke(0);
+  strokeWeight(4);
+  fill(255, 255, 0);
+  text(
+    `Day ${days} - ${contaminatedCount} / ${population.length} (${contaminatedPercent}%)`,
+    textX,
+    textY
+  );
+
+  if (frameCount % (ENV.dayDuration * 60) === 0) {
+    days++;
+  }
+
+  if (contaminatedCount === population.length) paused = true;
 
   if (paused) return;
-
-  population.forEach((c) => {
-    c.move();
-  });
 
   for (let i = 0; i < population.length; i++) {
     const c = population[i];
 
-    for (let j = 0; j < population.length; j++) {
-      if (j === i) continue;
+    if (c.contaminated) {
+      for (let j = 0; j < population.length; j++) {
+        if (j === i) continue;
 
-      const other = population[j];
+        const other = population[j];
 
-      if (
-        c.getDistance(other) < ENV.contaminationRadius &&
-        !other.contaminated
-      ) {
-        other.contaminated = random() <= ENV.contagiousness;
+        if (
+          !other.contaminated &&
+          c.getDistance(other) < ENV.contaminationRadius
+        ) {
+          other.contaminated = Math.random() <= ENV.contagiousness;
+        }
       }
     }
   }
-
-  const contaminatedCount = population.reduce(
-    (acc, c) => (c.contaminated ? acc + 1 : acc),
-    0
-  );
-
-  const contaminatedPercent = (
-    (contaminatedCount / population.length) *
-    100
-  ).toFixed(2);
-
-  noStroke();
-  fill(255);
-  text(
-    `${contaminatedCount} / ${population.length} (${contaminatedPercent}%)`,
-    10,
-    10 + 10
-  );
-
-  if (contaminatedCount === population.length) paused = true;
 }
