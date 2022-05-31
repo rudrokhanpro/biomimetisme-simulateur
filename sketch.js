@@ -1,54 +1,41 @@
 p5.disableFriendlyErrors = true;
 
-const DIRECTIONS = {
-  STAND: 0,
-  FORWARD: 1,
-  BACKWARD: -1,
-};
-const COLORS = {
-  RED: "#f00",
-};
-
 // Environnement settings
 const ENV = {
   canvasWidth: 400,
   canvasHeight: 400,
   fullscreen: true,
-  population: 1000,
-  contaminationRate: 0.1,
-  contagiousness: 0.001,
-  contaminationRadius: 4,
-  contaminationColor: COLORS.RED,
+  population: 2000,
+  contaminationRate: 0.01,
+  contagiousness: 1 / 1000,
+  contaminationRadius: 20,
+  contaminationColor: "#f00",
+  recoveredColor: "#0f0",
+  daysToRecover: 3,
   dayDuration: 4, // in seconds
 };
 
 const population = [];
 
 class Cell {
-  constructor(
-    settings = {
-      x: 0,
-      y: 0,
-      xDirection: 0,
-      yDirection: 0,
-      speed: 2,
-      size: 2,
-    }
-  ) {
-    this.x = settings.x;
-    this.y = settings.y;
-    this.xDirection = settings.xDirection;
-    this.yDirection = settings.yDirection;
-    this.speed = settings.speed;
-    this.size = settings.size;
-    this.contaminated = false;
+  constructor(env) {
+    this.x = 0;
+    this.y = 0;
+    this.xDirection = 0;
+    this.yDirection = 0;
+    this.speed = 1;
+    this.size = 4;
+    this.env = env;
+    this.contaminated = Math.random() < this.env.contaminationRate;
+    this.contaminationRemainingDays = this.contaminated
+      ? this.env.daysToRecover
+      : -1;
+    this.recovered = false;
   }
 
   move() {
-    if (this.xDirection === DIRECTIONS.STAND)
-      this.xDirection = DIRECTIONS.FORWARD;
-    if (this.yDirection === DIRECTIONS.STAND)
-      this.yDirection = DIRECTIONS.FORWARD;
+    if (this.xDirection === 0) this.xDirection = 1;
+    if (this.yDirection === 0) this.yDirection = 1;
 
     // collision detection
     const nextX = this.x + this.speed * this.xDirection;
@@ -68,121 +55,190 @@ class Cell {
   setRandomPosition() {
     this.x = random(this.size, width - this.size);
     this.y = random(this.size, height - this.size);
-    this.xDirection =
-      Math.random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
-    this.yDirection =
-      Math.random() > 0.5 ? DIRECTIONS.FORWARD : DIRECTIONS.BACKWARD;
+    this.xDirection = Math.random() > 0.5 ? 1 : -1;
+    this.yDirection = Math.random() > 0.5 ? 1 : -1;
   }
 
   getDistance(other) {
-    const x = this.x - other.x;
-    const y = this.y - other.y;
+    return dist(this.x, this.y, other.x, other.y) - this.size / 2;
+  }
 
-    return Math.sqrt(x ** 2 + y ** 2) - this.size / 2;
+  spread(population) {
+    if (this.contaminated) {
+      for (let i = 0; i < population.length; i++) {
+        const other = population[i];
+
+        if (
+          !other.contaminated &&
+          this.getDistance(other) < this.env.contaminationRadius
+        ) {
+          other.contaminated = Math.random() <= this.env.contagiousness;
+          other.contaminationRemainingDays = this.env.daysToRecover;
+        }
+      }
+    }
+  }
+
+  recover() {
+    this.contaminationRemainingDays--;
+    this.recovered = this.contaminationRemainingDays === 0;
+
+    if (this.recovered) {
+      this.contaminated = false;
+    }
+  }
+
+  render() {
+    if (this.contaminated) {
+      noStroke();
+      fill(this.env.contaminationColor);
+      ellipse(this.x, this.y, this.size, this.size);
+
+      stroke(this.env.contaminationColor);
+      strokeWeight(1);
+      noFill();
+      ellipse(
+        this.x,
+        this.y,
+        this.size + this.env.contaminationRadius,
+        this.size + this.env.contaminationRadius
+      );
+    } else if (this.recovered) {
+      noStroke();
+      fill(this.env.recoveredColor);
+      ellipse(this.x, this.y, this.size, this.size);
+    } else {
+      noStroke();
+      fill(255);
+      ellipse(this.x, this.y, this.size, this.size);
+    }
   }
 }
 
-let startButton;
 let paused = true;
 let days = 0;
+
+let contaminatedCount = 0;
+let maxContaminatedCount = 0;
+let minContaminatedCount = Infinity;
+let recoveredCount = 0;
 
 function setup() {
   if (ENV.fullscreen) {
     createCanvas(windowWidth, windowHeight);
+    document.body.classList.add("fullscreen");
   } else {
     createCanvas(ENV.canvasWidth, ENV.canvasHeight);
   }
 
-  startButton = createButton("Start/Pause");
-  startButton.position(0, 0);
-  startButton.mousePressed(() => {
-    paused = !paused;
-  });
-
   // Create population
   for (let n = 0; n < ENV.population; n++) {
-    const c = new Cell();
-
+    const c = new Cell(ENV);
     c.setRandomPosition();
-
-    c.contaminated = Math.random() <= ENV.contaminationRate;
 
     population.push(c);
   }
+
+  background(0);
+  drawPopulation();
+
+  if (paused) noLoop();
 }
 
 function draw() {
   background(0);
 
-  let contaminatedCount = 0;
+  const isDay = frameCount % (60 * ENV.dayDuration) === 0;
+  if (isDay) days++;
 
-  population.forEach((c) => {
-    if (c.contaminated) {
-      contaminatedCount++;
+  for (let i = 0; i < population.length; i++) {
+    const p = population[i];
 
-      noStroke();
-      fill(ENV.contaminationColor);
-      ellipse(c.x, c.y, c.size, c.size);
+    p.spread(population);
+    p.move();
 
-      stroke(ENV.contaminationColor);
-      strokeWeight(1);
-      noFill();
-      ellipse(
-        c.x,
-        c.y,
-        c.size + ENV.contaminationRadius,
-        c.size + ENV.contaminationRadius
-      );
-    } else {
-      noStroke();
-      fill(255);
-      ellipse(c.x, c.y, c.size, c.size);
+    if (p.contaminated && isDay) {
+      p.recover();
     }
+  }
 
-    if (!paused) c.move();
-  });
+  drawPopulation();
+  drawStats();
 
+  if (contaminatedCount === 0) noLoop();
+}
+
+function mousePressed() {
+  paused = !paused;
+
+  if (paused) {
+    noLoop();
+  } else {
+    loop();
+  }
+}
+
+function drawPopulation() {
+  for (let i = 0; i < population.length; i++) {
+    const p = population[i];
+
+    p.render();
+  }
+}
+
+function drawStats() {
+  const stateLabel = paused ? "[PAUSED]" : "";
+  const fps = Math.round(frameRate());
+  contaminatedCount = population.filter((p) => p.contaminated).length;
+  recoveredCount = population.filter((p) => p.recovered).length;
+  maxContaminatedCount = Math.max(contaminatedCount, maxContaminatedCount);
+  minContaminatedCount = Math.min(contaminatedCount, minContaminatedCount);
   const contaminatedPercent = (
-    (contaminatedCount / ENV.population) *
+    (contaminatedCount / population.length) *
+    100
+  ).toFixed(2);
+  const maxContaminatedPercent = (
+    (maxContaminatedCount / population.length) *
+    100
+  ).toFixed(2);
+  const minContaminatedPercent = (
+    (minContaminatedCount / population.length) *
     100
   ).toFixed(2);
 
-  const textX = startButton ? startButton.width + 10 : 10;
-  const textY = 10 + 6;
+  const textSize = 10;
+  const textX = 10;
+  const textY = textSize + 10;
 
   stroke(0);
   strokeWeight(4);
   fill(255, 255, 0);
+  text(textSize);
   text(
-    `Day ${days} - ${contaminatedCount} / ${population.length} (${contaminatedPercent}%)`,
+    `Day ${days} \
+    Current: ${contaminatedCount} / ${population.length} (${contaminatedPercent}%) \
+    Min: ${minContaminatedCount} (${minContaminatedPercent}%) \
+    Max: ${maxContaminatedCount} (${maxContaminatedPercent}%) \
+    Recovered: ${recoveredCount} \
+    ${fps} FPS \
+    ${stateLabel}`,
     textX,
     textY
   );
 
-  if (frameCount % (ENV.dayDuration * 60) === 0) {
-    days++;
-  }
+  const rectWidth = 100;
+  const rectHeight = 6;
 
-  if (contaminatedCount === population.length) paused = true;
+  noStroke();
+  fill(255);
+  rect(textX, textY + textSize, rectWidth, rectHeight);
 
-  if (paused) return;
-
-  for (let i = 0; i < population.length; i++) {
-    const c = population[i];
-
-    if (c.contaminated) {
-      for (let j = 0; j < population.length; j++) {
-        if (j === i) continue;
-
-        const other = population[j];
-
-        if (
-          !other.contaminated &&
-          c.getDistance(other) < ENV.contaminationRadius
-        ) {
-          other.contaminated = Math.random() <= ENV.contagiousness;
-        }
-      }
-    }
-  }
+  noStroke();
+  fill(ENV.contaminationColor);
+  rect(
+    textX,
+    textY + textSize,
+    map(contaminatedPercent, 0, 100, 0, rectWidth),
+    rectHeight
+  );
 }
